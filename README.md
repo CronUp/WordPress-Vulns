@@ -4,18 +4,22 @@ A non-invasive passive scanner that detects **two critical WordPress vulnerabili
 
 | CVE | Severity | Affected | Fixed in | Type |
 |-----|----------|----------|----------|------|
-| Click2Shell | High -> Critical (chain) | WordPress < 7.1.1 | 7.1.1 | Theme Preview Injection -> RCE |
-| **CVE-2026-87902** | **CVSS 9.2 Critical** | WordPress < 7.1.2 (>= 4.7) | 7.1.2 | Path Traversal -> LFI (no auth) |
+| Click2Shell | High -> Critical (chain) | WordPress 4.8.0 - 7.1.0 (all branches) | per-branch (4.8.31 / 7.1.1) | Theme Preview Injection -> RCE |
+| **CVE-2026-87902** | **CVSS 9.2 Critical** | WordPress 4.7.0 - 7.1.1 (all branches) | per-branch (4.7.37 / 7.1.2) | Path Traversal -> LFI (no auth) |
 
 ---
 
 ## How it works
 
-### Click2Shell (WordPress < 7.1.1)
-A crafted `/wp-admin/theme-install.php?theme=<value>` URL installs an attacker-selected theme from the WordPress.org catalog **without the administrator pressing Install/Activate** (selector injection in `wp-admin/js/theme.js`). Chained with pre-activation AJAX flaws in the `mobile-repair-zone` theme (2.5.4) and 40+ others, the inactive theme's PHP is loaded via the Customizer and executes attacker PHP. Core fix: `$.escapeSelector()` (WordPress 7.1.1).
+### Click2Shell (WordPress 4.8 - 7.1.0, all branches)
+A crafted `/wp-admin/theme-install.php?theme=<value>` URL installs an attacker-selected theme from the WordPress.org catalog **without the administrator pressing Install/Activate** (selector injection in `wp-admin/js/theme.js`). Chained with pre-activation AJAX flaws in the `mobile-repair-zone` theme (2.5.4) and 40+ others, the inactive theme's PHP is loaded via the Customizer and executes attacker PHP. Core fix: `$.escapeSelector()`. Versions below 4.8 do not contain the vulnerable theme-install JS behavior and are not affected.
 
-### CVE-2026-87902 (WordPress < 7.1.2)
+Security updates are available for every active branch back to 4.8 (e.g. 6.8.9, 6.9.8, 7.0.5, 7.1.1). The scanner checks each site against the correct patched version for its branch.
+
+### CVE-2026-87902 (WordPress 4.7 - 7.1.1, all branches)
 A double-encoded path traversal in `get_page_template()` / `locate_template()` allows including arbitrary PHP files outside the theme directory - **no authentication required**.
+
+Security updates are available for every active branch back to 4.7 (e.g. 6.8.10, 6.9.9, 7.0.6, 7.1.2). The scanner checks each site against the correct patched version for its branch.
 
 **Payload:**
 ```
@@ -122,19 +126,19 @@ python wordpress-vulns.py --poc https://example.com --poc-out poc.html
 
 | Label | Meaning |
 |-------|---------|
-| `VULNERABLE` | Version < 7.1.1 |
-| `patched` | Version >= 7.1.1 |
+| `VULNERABLE` | Version is in the affected range for its branch (e.g. < 6.8.9 on the 6.8 branch) |
+| `patched` | Version is at or above the patched release for its branch, OR version predates 4.8 |
 | `UNKNOWN` | WordPress confirmed but version not detected |
 
 #### CVE-2026-87902
 
 | Label | Meaning |
 |-------|---------|
-| `VULNERABLE` | Version < 7.1.2 (version-based), OR behavioral check confirmed path traversal |
-| `patched` | Version >= 7.1.2 |
+| `VULNERABLE` | Version is in the affected range for its branch (e.g. < 6.8.10 on the 6.8 branch), OR behavioral check confirmed path traversal |
+| `patched` | Version is at or above the patched release for its branch, OR version predates 4.7 |
 | `UNKNOWN` | WordPress confirmed, version not detected, behavioral check inconclusive |
 
-> **Note:** A negative behavioral result does **not** produce `patched` for versions below 7.1.2. WAFs, CDN caches, and theme configurations can produce a clean-looking behavioral response even on a vulnerable site. Version >= 7.1.2 is the only reliable confirmation of the fix.
+> **Note:** A negative behavioral result does **not** produce `patched` for versions in the affected range. WAFs, CDN caches, and theme configurations can produce a clean-looking behavioral response even on a vulnerable site. Only a version at or above the branch-specific patched release is a reliable confirmation of the fix.
 
 ---
 
@@ -142,9 +146,25 @@ python wordpress-vulns.py --poc https://example.com --poc-out poc.html
 
 | Version range | Click2Shell | CVE-2026-87902 |
 |---------------|-------------|----------------|
-| < 7.1.1 | **VULNERABLE** (RCE chain) | **VULNERABLE** |
-| 7.1.0 - 7.1.1 | patched | **VULNERABLE** |
-| >= 7.1.2 | patched | patched |
+| < 4.7 | patched (predates both vulns) | patched (predates vuln) |
+| 4.7.x (unpatched) | patched (predates C2S) | **VULNERABLE** |
+| 4.8 - 7.1 (unpatched branch) | **VULNERABLE** | **VULNERABLE** |
+| Patched branch release (e.g. 6.8.9 / 6.8.10) | patched | patched |
+| >= 7.1.1 / >= 7.1.2 | patched | patched |
+
+Both vulnerabilities have backports for every active branch. The scanner uses the correct patched version per branch.
+
+**Click2Shell** (GHSA-5qf7-2r5p-ppj8) - affects 4.8+:
+
+| Branch | C2S patched at | CVE-87902 patched at |
+|--------|---------------|---------------------|
+| 4.7 | not affected | 4.7.37 |
+| 4.8 | 4.8.31 | 4.8.32 |
+| 4.9 | 4.9.32 | 4.9.33 |
+| 5.0 - 5.9 | varies (+1 each) | varies (+1 each) |
+| 6.0 - 6.9 | varies (+1 each) | varies (+1 each) |
+| 7.0 | 7.0.5 | 7.0.6 |
+| 7.1 | 7.1.1 | 7.1.2 |
 
 - If `mobile-repair-zone` is installed on a Click2Shell-vulnerable site, the full RCE chain is available locally. Its absence does **not** mean the site is safe - WordPress can download the theme automatically.
 - CVE-2026-87902 requires no authentication and affects all branches back to WordPress 4.7.
@@ -155,8 +175,8 @@ python wordpress-vulns.py --poc https://example.com --poc-out poc.html
 
 | Vulnerability | Action |
 |---------------|--------|
-| Click2Shell | Update to WordPress **>= 7.1.1** |
-| CVE-2026-87902 | Update to WordPress **>= 7.1.2** (backports available for branches >= 4.7) |
+| Click2Shell | Update to the latest release for your branch (e.g. 6.8.9, 6.9.8, 7.0.5, or 7.1.1+) |
+| CVE-2026-87902 | Update to the latest release for your branch (e.g. 6.8.10, 6.9.9, 7.0.6, or 7.1.2+) |
 
 ---
 
