@@ -1,49 +1,41 @@
-﻿# WordPress-Vulns â€” WordPress Dual Critical Vulnerability Scanner
+# Wordpress Vulns — WordPress Dual Critical Vulnerability Checker
 
-A non-invasive passive scanner that detects **two critical WordPress vulnerabilities** in a single run, with multi-threaded support for bulk scanning.
+A non-invasive passive scanner that detects **two critical WordPress vulnerabilities** in a single run.
 
 | CVE | Severity | Affected | Fixed in | Type |
 |-----|----------|----------|----------|------|
-| Click2Shell | High â†’ Critical (chain) | WordPress < 7.1.1 | 7.1.1 | Theme Preview Injection â†’ RCE |
-| **CVE-2026-87902** | **CVSS 9.2 Critical** | WordPress < 7.1.2 (â‰¥ 4.7) | 7.1.2 | Path Traversal â†’ LFI (no auth) |
+| Click2Shell | High → Critical (chain) | WordPress < 7.1.1 | 7.1.1 | Theme Preview Injection → RCE |
+| **CVE-2026-87902** | **CVSS 9.2 Critical** | WordPress < 7.1.2 (≥ 4.7) | 7.1.2 | Path Traversal → LFI (no auth) |
 
 ---
 
 ## How it works
 
 ### Click2Shell (WordPress < 7.1.1)
-A crafted `/wp-admin/theme-install.php?theme=<value>` URL installs an attacker-selected theme from the WordPress.org catalog **without the administrator pressing Install/Activate** (selector injection in `wp-admin/js/theme.js`). Chained with pre-activation AJAX flaws in the `mobile-repair-zone` theme (2.5.4) and 40+ others, the inactive theme's PHP is loaded via the Customizer and executes attacker PHP. Core fix: `$.escapeSelector()` (WordPress 7.1.1).
+A crafted `/wp-admin/theme-install.php?theme=<value>` URL installs an attacker-selected theme from the WordPress.org catalog **without the administrator pressing Install/Activate** (selector injection in `wp-admin/js/theme.js`). Chained with pre-activation AJAX flaws in the `mobile-repair-zone` theme (2.5.4) and 40+ others, the inactive theme's PHP is loaded via the Customizer and executes attacker PHP. Core fix: [changeset 63664](https://core.trac.wordpress.org/changeset/63664) (`$.escapeSelector()`).
 
 ### CVE-2026-87902 (WordPress < 7.1.2)
-A double-encoded path traversal in `get_page_template()` / `locate_template()` allows including arbitrary PHP files outside the theme directory â€” **no authentication required**.
+A double-encoded path traversal in `get_page_template()` / `locate_template()` allows including arbitrary PHP files outside the theme directory — **no authentication required**.
 
 **Payload:**
 ```
 GET /?page_id=2&pagename=templates%252F%252E%252E%252F%252E%252E%252F%252E%252E%252Findex HTTP/1.1
 ```
-`%252F%252E%252E%252F` â†’ first decode â†’ `%2F%2E%2E%2F` â†’ WordPress decode â†’ `/../`
+`%252F%252E%252E%252F` → after first decode → `%2F%2E%2E%2F` → after WordPress decode → `/../`
 
-**Detection (passive, no exploitation):** three-request behavioral comparison per candidate page ID:
-1. **Baseline** â€” `/?page_id=N` â€” real page, confirms content exists
-2. **Control** â€” traversal targeting a nonexistent file (should not match test)
-3. **Test** â€” traversal targeting `wp-content/index.php` (empty PHP stub)
+**Detection method (passive, no exploitation):** three-request behavioral comparison:
+1. **Baseline** — normal page request (200, has content)
+2. **Control** — traversal targeting a guaranteed-nonexistent file (not a minimal 200)
+3. **Test** — traversal targeting `wp-content/index.php` (empty stub file)
 
-A behavioral signal (HTTP status difference or significant content-length drop) confirms the traversal is reachable. A negative behavioral result does **not** clear a site â€” WAFs, CDN caches, and theme configurations can silently absorb the payload without the vulnerability being patched.
+**Positive indicator:** test returns empty HTTP 200 while control does not → confirms the traversal resolves and includes files.
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/CronUp/WordPress-Vulns
-cd WordPress-Vulns
-pip install -r requirements.txt
-
-# Optional: Chrome TLS fingerprint impersonation (reduces Cloudflare blocks)
-pip install curl_cffi
-```
-
-Requires Python 3.8+.
+git clone https://github.com/CronUp/click2shell-plusWo
 
 ---
 
@@ -69,10 +61,7 @@ python wordpress-vulns.py -t https://example.com
 # Scan a list of targets and export all formats
 python wordpress-vulns.py -l targets.txt --html report.html --json out.json --csv out.csv
 
-# High-concurrency bulk scan
-python wordpress-vulns.py -l targets.txt --threads 50 --timeout 15
-
-# Skip CVE-2026-87902 behavioral check (version-only, faster)
+# Skip CVE-2026-87902 behavioral check (faster, version-only)
 python wordpress-vulns.py -l targets.txt --no-pathtrav
 
 # Generate Click2Shell PoC HTML (requires authenticated admin to open)
@@ -96,7 +85,7 @@ python wordpress-vulns.py --poc https://example.com --poc-out poc.html
 | `--no-color` | Disable ANSI colors |
 | `--json FILE` | Export results as JSON |
 | `--csv FILE` | Export results as CSV |
-| `--html FILE` | Export self-contained, sortable HTML report |
+| `--html FILE` | Export HTML report (self-contained, sortable) |
 | `--poc TARGET` | Generate Click2Shell PoC HTML |
 | `--poc-out FILE` | PoC output path (default: `click2shell_poc.html`) |
 | `--poc-delay MS` | Stage-2 delay in milliseconds (default: 60000) |
@@ -108,71 +97,47 @@ python wordpress-vulns.py --poc https://example.com --poc-out poc.html
 | Column | Description |
 |--------|-------------|
 | TARGET | Target URL |
-| WP | WordPress detected |
-| VERSION | Detected WordPress version and source |
-| CLICK2SHELL | Exposure to Click2Shell (version-based) |
-| CVE-2026-87902 | Exposure to path traversal (version-based + behavioral) |
-| MRZ | `mobile-repair-zone` chain theme installed |
-| SETUP | `wp-admin/install.php` publicly reachable |
-| SOURCE | Endpoint that revealed the version |
+| WP | WordPress detected? |
+| VERSION | Detected WordPress version |
+| CLICK2SHELL | Vulnerable to Click2Shell (< 7.1.1)? |
+| CVE-2026-87902 | Vulnerable to path traversal (< 7.1.2)? Confirmed by behavioral check |
+| MRZ | `mobile-repair-zone` chain theme installed? |
+| SETUP | `wp-admin/install.php` publicly accessible? |
+| SOURCE | Where the version was found |
 
-### Status labels
-
-#### CLICK2SHELL
-
-| Label | Meaning |
-|-------|---------|
-| `VULNERABLE` | Version < 7.1.1 |
-| `patched` | Version â‰¥ 7.1.1 |
-| `UNKNOWN` | WordPress confirmed but version not detected |
-
-#### CVE-2026-87902
-
-| Label | Meaning |
-|-------|---------|
-| `VULNERABLE` | Version < 7.1.2 (version-based), OR behavioral check confirmed path traversal |
-| `patched` | Version â‰¥ 7.1.2 |
-| `UNKNOWN` | WordPress confirmed, version not detected, behavioral check inconclusive |
-
-> **Note:** A negative behavioral result does **not** produce `patched` for versions below 7.1.2. WAFs, CDN caches, and theme configurations can produce a clean-looking behavioral response even on a vulnerable site. Version â‰¥ 7.1.2 is the only reliable confirmation of the fix.
+**VULNERABLE** = confirmed exposure. **patched** = version confirmed ≥ fixed baseline. **UNKNOWN** = WordPress detected but version could not be determined.
 
 ---
 
 ## Risk summary
 
-| Version range | Click2Shell | CVE-2026-87902 |
-|---------------|-------------|----------------|
-| < 7.1.1 | **VULNERABLE** (RCE chain) | **VULNERABLE** |
-| 7.1.0 â€“ 7.1.1 | patched | **VULNERABLE** |
-| â‰¥ 7.1.2 | patched | patched |
-
-- If `mobile-repair-zone` is installed on a Click2Shell-vulnerable site, the full RCE chain is available locally. Its absence does **not** mean the site is safe â€” WordPress can download the theme automatically.
-- CVE-2026-87902 requires no authentication and affects all branches back to WordPress 4.7.
+- **WordPress < 7.1.1**: vulnerable to Click2Shell. If `mobile-repair-zone` is also installed, the full RCE chain is ready locally. Absence of the theme does NOT mean safe — WordPress downloads it from the catalog automatically.
+- **WordPress 7.1.0 – 7.1.1**: Click2Shell is patched, but CVE-2026-87902 path traversal/LFI is still present (no auth required, CVSS 9.2).
+- **WordPress ≥ 7.1.2**: both vulnerabilities patched.
 
 ---
 
 ## Remediation
 
-| Vulnerability | Action |
-|---------------|--------|
-| Click2Shell | Update to WordPress **â‰¥ 7.1.1** |
-| CVE-2026-87902 | Update to WordPress **â‰¥ 7.1.2** (backports available for branches â‰¥ 4.7) |
+| Vulnerability | Fix |
+|---------------|-----|
+| Click2Shell | Update to WordPress **7.1.1** or later |
+| CVE-2026-87902 | Update to WordPress **7.1.2** or later (backport available for branches ≥ 4.7) |
 
 ---
 
 ## Legal notice
 
-This tool is intended for **authorized security testing only**. You are solely responsible for ensuring you have explicit written permission to scan any target. The authors accept no liability for unauthorized use.
+This tool is intended for **authorized security testing only**. You are solely responsible for ensuring you have explicit permission to scan any target. The authors accept no liability for unauthorized use.
 
 ---
 
 ## Author
 
-**CronUp Cybersecurity** â€” [https://github.com/CronUp](https://github.com/CronUp)
+**CronUp Cybersecurity** — [https://github.com/CronUp](https://github.com/CronUp)
 
 Research references:
-- [Click2Shell â€” pwn.ai, Sep 2026](https://pwn.ai)
-- [CVE-2026-87902 â€” Hadrian, 2026](https://hadrian.io/vulnerability-alerts/cve-2026-87902-working-poc-wordpress-critical-path-traversal)
+- [Click2Shell — pwn.ai, Sep 2026](https://pwn.ai)
+- [CVE-2026-87902 — Hadrian, 2026](https://hadrian.io/vulnerability-alerts/cve-2026-87902-working-poc-wordpress-critical-path-traversal)
 
 License: MIT
-
