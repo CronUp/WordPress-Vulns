@@ -1,32 +1,32 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
-WordPress-Vulns â€” WordPress Dual Critical Vulnerability Scanner
+WordPress-Vulns - WordPress Dual Critical Vulnerability Scanner
 ===============================================================
 
 Detects TWO critical WordPress vulnerabilities in a single non-invasive scan:
 
-  1. Click2Shell  (Theme Preview Injection â†’ RCE chain, WordPress < 7.1.1)
+  1. Click2Shell  (Theme Preview Injection -> RCE chain, WordPress < 7.1.1)
      Crafted /wp-admin/theme-install.php URL installs an attacker-selected theme
      from the WP catalog without an administrator pressing Install/Activate
      (selector injection in wp-admin/js/theme.js). Chains with vulnerable themes
      (e.g. mobile-repair-zone 2.5.4) for unauthenticated RCE via the Customizer.
      Core fix: WordPress 7.1.1 (changeset 63664, $.escapeSelector()).
 
-  2. CVE-2026-87902  (Encoded Path Traversal â†’ Local PHP File Inclusion, CVSS 9.2)
+  2. CVE-2026-87902  (Encoded Path Traversal -> Local PHP File Inclusion, CVSS 9.2)
      Double-encoded path traversal in WordPress's page-template resolution
      (get_page_template / locate_template) allows inclusion of arbitrary PHP
-     files outside the theme directory â€” no authentication required.
+     files outside the theme directory - no authentication required.
      Payload: /?page_id=N&pagename=templates%252F%252E%252E%252F...%252Findex
      Core fix: WordPress 7.1.2.
      Detection: 3-request passive behavioral fingerprint (no file inclusion).
 
 THIS TOOL:
-  CHECKER (default) â€” fully NON-INVASIVE.  Only passive HTTP GET requests to
+  CHECKER (default) - fully NON-INVASIVE.  Only passive HTTP GET requests to
   public endpoints. No exploitation, no writes, no auth attempts.
   Determines: WordPress version, Click2Shell exposure, CVE-2026-87902 exposure,
   and presence of the mobile-repair-zone chain theme.
 
-  POC (--poc) â€” generates an HTML page for the Click2Shell chain.
+  POC (--poc) - generates an HTML page for the Click2Shell chain.
   NOTE: requires an AUTHENTICATED ADMINISTRATOR to visit the page.
   Use only on systems you own or are authorized to test.
 
@@ -105,7 +105,7 @@ USER_AGENT = (
 REQUEST_TIMEOUT = 20
 POLITE_DELAY = 0.0
 
-# CVE-2026-87902 â€” double-encoded path-traversal components.
+# CVE-2026-87902 - double-encoded path-traversal components.
 # First URL decode: %25 -> %, so %252F -> %2F, %252E -> %2E
 # WordPress then URL-decodes again: %2F -> /, %2E -> .
 # Result: templates/../../../index  ->  wp-content/index.php (empty file)
@@ -224,7 +224,7 @@ class Detection:
 
     @property
     def pathtrav_vuln(self) -> bool:
-        """True if CVE-2026-87902 label shows VULNERABLE â€” behavioral confirm OR version < 7.1.2."""
+        """True if CVE-2026-87902 label shows VULNERABLE - behavioral confirm OR version < 7.1.2."""
         if not self.is_wordpress or self.blocked or self.offline or self.error:
             return False
         if self.vulnerable_pathtrav:
@@ -360,7 +360,7 @@ def build_session(impersonate: bool = False):
     s.headers.update({"User-Agent": USER_AGENT, "Accept": "*/*", "Connection": "close"})
     # Each thread gets its own session with a minimal pool.
     # Connection: close forces TCP teardown after each response, releasing
-    # ephemeral ports immediately â€” critical on Windows with high thread counts.
+    # ephemeral ports immediately - critical on Windows with high thread counts.
     adapter = requests.adapters.HTTPAdapter(
         pool_connections=1,
         pool_maxsize=1,
@@ -388,7 +388,7 @@ def fetch(session, url: str, timeout: int, verify: bool):
 
 
 # --------------------------------------------------------------------------- #
-# CVE-2026-87902 â€” passive behavioral detection
+# CVE-2026-87902 - passive behavioral detection
 # --------------------------------------------------------------------------- #
 def check_pathtrav(session, base: str, timeout: int, verify: bool) -> tuple:
     """
@@ -397,19 +397,19 @@ def check_pathtrav(session, base: str, timeout: int, verify: bool) -> tuple:
     Returns (vulnerable: bool, page_id: int|None, evidence: dict).
 
     Method (per Hadrian research):
-      1. Baseline  â€” real page at ?page_id=N  (200, substantial content)
-      2. Control   â€” traversal to guaranteed-nonexistent file (should NOT match test)
-      3. Test      â€” traversal targeting wp-content/index.php (empty PHP stub)
+      1. Baseline  - real page at ?page_id=N  (200, substantial content)
+      2. Control   - traversal to guaranteed-nonexistent file (should NOT match test)
+      3. Test      - traversal targeting wp-content/index.php (empty PHP stub)
 
     Positive indicator: test returns HTTP 200 with body significantly shorter
     than baseline, while control does NOT exhibit the same minimal-response
-    behavior â€” ruling out site-wide caching/stripping artifacts.
+    behavior - ruling out site-wide caching/stripping artifacts.
     """
     for page_id in PT_PAGE_IDS:
         baseline_url = f"{base}/?page_id={page_id}"
         r_base = fetch(session, baseline_url, timeout, verify)
         if r_base is None:
-            break  # site not responding â€” no point trying more page IDs
+            break  # site not responding - no point trying more page IDs
         if r_base.status_code != 200:
             continue
         baseline_len = len(r_base.text.strip())
@@ -426,7 +426,7 @@ def check_pathtrav(session, base: str, timeout: int, verify: bool) -> tuple:
         if r_test is None:
             break
 
-        # The check reached completion for this page_id â€” result is definitive.
+        # The check reached completion for this page_id - result is definitive.
         ctrl_status = r_ctrl.status_code
         ctrl_len    = len(r_ctrl.text.strip())
         test_len    = len(r_test.text.strip())
@@ -436,7 +436,7 @@ def check_pathtrav(session, base: str, timeout: int, verify: bool) -> tuple:
         status_signal = r_test.status_code == 200 and ctrl_status not in (200,)
 
         # Signal 2: both return 200 but test content is dramatically shorter than
-        # baseline AND control â€” template was empty so page body is missing.
+        # baseline AND control - template was empty so page body is missing.
         size_signal = (
             r_test.status_code == 200
             and ctrl_status == 200
@@ -455,11 +455,11 @@ def check_pathtrav(session, base: str, timeout: int, verify: bool) -> tuple:
         if status_signal or size_signal:
             return True, page_id, evidence, True   # vulnerable, checked
 
-        # Completed without finding vulnerability â€” result is trustworthy.
+        # Completed without finding vulnerability - result is trustworthy.
         return False, None, evidence, True
 
     # Loop exhausted without completing a full 3-request cycle (timeouts, 403s,
-    # no valid page IDs) â€” result is inconclusive, NOT a clean "not vulnerable".
+    # no valid page IDs) - result is inconclusive, NOT a clean "not vulnerable".
     return False, None, {}, False
 
 
@@ -487,7 +487,7 @@ def scan_target(
     detected_path = ""
 
     # ------------------------------------------------------------------ #
-    # Phase 1 â€” homepage: generator meta, core asset ?ver=, WP path hints
+    # Phase 1 - homepage: generator meta, core asset ?ver=, WP path hints
     # ------------------------------------------------------------------ #
     try:
         resp = session.get(
@@ -525,7 +525,7 @@ def scan_target(
         wp_paths.append("")
 
     # ------------------------------------------------------------------ #
-    # Phase 2 â€” low-risk public endpoints: feed, OPML, REST API
+    # Phase 2 - low-risk public endpoints: feed, OPML, REST API
     # ------------------------------------------------------------------ #
     for wp_path in wp_paths:
         wp_base = base + wp_path
@@ -555,7 +555,7 @@ def scan_target(
             break
 
     # ------------------------------------------------------------------ #
-    # Phase 3 â€” sensitive files (only when version/confirmation still needed)
+    # Phase 3 - sensitive files (only when version/confirmation still needed)
     # ------------------------------------------------------------------ #
     have_version = bool(
         candidates.get("meta") or candidates.get("feed")
@@ -644,7 +644,7 @@ def scan_target(
         version_tuple(version), C2S_FIXED_VERSION
     )
 
-    # Chain theme (mobile-repair-zone) â€” only meaningful when Click2Shell exposed
+    # Chain theme (mobile-repair-zone) - only meaningful when Click2Shell exposed
     if check_chain and det.vulnerable_click2shell:
         theme_url = (
             base + detected_path
@@ -660,7 +660,7 @@ def scan_target(
                 "url": theme_url, "status": r.status_code,
             }
 
-    # ---- CVE 2: CVE-2026-87902 (< 7.1.2) â€” behavioral fingerprint ----
+    # ---- CVE 2: CVE-2026-87902 (< 7.1.2) - behavioral fingerprint ----
     if check_pt and det.is_wordpress:
         vt = version_tuple(version)
         # Skip only when version is definitively >= 7.1.2; unknown version -> check anyway
@@ -710,7 +710,7 @@ def _risk_label(det: Detection, vuln: bool) -> tuple:
 
 def _pathtrav_label(det: Detection) -> tuple:
     """
-    Risk label for CVE-2026-87902 â€” version-aware and check-aware.
+    Risk label for CVE-2026-87902 - version-aware and check-aware.
 
     patched      = version >= 7.1.2 (confirmed safe by version)
                    OR behavioral check completed and found no vulnerability
@@ -726,10 +726,10 @@ def _pathtrav_label(det: Detection) -> tuple:
     if det.vulnerable_pathtrav: return "VULNERABLE", (C.RED, C.BOLD)
 
     vt = version_tuple(det.version)
-    # Version >= 7.1.2 means patch was applied â€” no behavioral check needed.
+    # Version >= 7.1.2 means patch was applied - no behavioral check needed.
     if vt is not None and not is_older(vt, PT_FIXED_VERSION):
         return "patched", (C.GREEN,)
-    # Version < fix baseline â€” flag as vulnerable regardless of behavioral result.
+    # Version < fix baseline - flag as vulnerable regardless of behavioral result.
     # A negative behavioral check is NOT proof of patched: caches, WAFs, or
     # theme differences can silently absorb the payload without the site being fixed.
     if vt is not None:
@@ -847,7 +847,7 @@ function sortTable(col){
   var ths=t.querySelectorAll('thead th');
   ths.forEach(function(th,i){
     var lbl=th.getAttribute('data-label')||th.textContent;
-    th.innerHTML=lbl+(i===col?'<span class="arrow">'+(asc?'â–²':'â–¼')+'</span>':'');
+    th.innerHTML=lbl+(i===col?'<span class="arrow">'+(asc?'&#9650;':'&#9660;')+'</span>':'');
   });
 }
 """
@@ -920,7 +920,7 @@ def generate_html_report(
     skipped_rows = ""
     if skipped:
         items = "".join(
-            f"<li>{esc(raw)} <span class='muted'>â†’ {esc(reason)}</span></li>"
+            f"<li>{esc(raw)} <span class='muted'>-> {esc(reason)}</span></li>"
             for raw, reason in skipped
         )
         skipped_rows = (
@@ -993,16 +993,16 @@ def generate_html_report(
 
 
 # --------------------------------------------------------------------------- #
-# Click2Shell PoC generator (CVE 1 â€” requires authenticated admin visit)
+# Click2Shell PoC generator (CVE 1 - requires authenticated admin visit)
 # --------------------------------------------------------------------------- #
 POC_HTML_TEMPLATE = """<!doctype html>
-<!-- WordPress-Vulns PoC â€” AUTHORIZED TESTING ONLY -->
+<!-- WordPress-Vulns PoC - AUTHORIZED TESTING ONLY -->
 <!-- Stage-2 RCE chain. Requires an AUTHENTICATED WordPress Administrator. -->
 <html lang="en">
 <meta charset="utf-8">
 <title>Click2Shell PoC (stage-2 RCE chain)</title>
 <body style="font-family:monospace;padding:2rem">
-  <h2>Click2Shell â€” stage 2 (auto-submit)</h2>
+  <h2>Click2Shell - stage 2 (auto-submit)</h2>
   <p>Target: <code>{target}</code></p>
   <p>Theme: <code>{theme_slug}</code></p>
   <button id="launch">Launch chain</button>
@@ -1115,9 +1115,9 @@ def main():
 
     ap = argparse.ArgumentParser(
         description=(
-            "WordPress-Vulns â€” passive scanner for two critical WordPress CVEs:\n"
-            "  â€¢ Click2Shell  (Theme Preview Injection â†’ RCE, WP < 7.1.1)\n"
-            "  â€¢ CVE-2026-87902  (Path Traversal â†’ LFI, WP < 7.1.2, CVSS 9.2)"
+            "WordPress-Vulns - passive scanner for two critical WordPress CVEs:\n"
+            "  * Click2Shell  (Theme Preview Injection -> RCE, WP < 7.1.1)\n"
+            "  * CVE-2026-87902  (Path Traversal -> LFI, WP < 7.1.2, CVSS 9.2)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -1172,7 +1172,7 @@ def main():
             use_impersonate = True
         except ImportError:
             print(dim(
-                "[!] curl_cffi not installed â€” using plain requests. "
+                "[!] curl_cffi not installed - using plain requests. "
                 "Install with: pip install curl_cffi for better Cloudflare bypass."
             ))
 
@@ -1200,13 +1200,13 @@ def main():
 
     c2s_base = ".".join(map(str, C2S_FIXED_VERSION))
     pt_base  = ".".join(map(str, PT_FIXED_VERSION))
-    print(bold(f"[*] Scanning {len(targets)} target(s)") + dim(" â€” passive checks only."))
+    print(bold(f"[*] Scanning {len(targets)} target(s)") + dim(" - passive checks only."))
     print(bold("[*] Click2Shell baseline: ") + yellow(f"WP < {c2s_base}"))
     print(bold("[*] CVE-2026-87902 baseline: ") + yellow(f"WP < {pt_base}") + dim(" (CVSS 9.2, behavioral check)"))
 
     if args.list:
         print(dim(
-            f"[*] Input: {tstats['total']} lines â†’ {tstats['valid']} valid, "
+            f"[*] Input: {tstats['total']} lines -> {tstats['valid']} valid, "
             f"{tstats['invalid']} invalid, {tstats['duplicates']} duplicate(s)."
         ))
         for raw, reason in tstats["skipped"]:
@@ -1272,7 +1272,7 @@ def main():
         ))
     if vuln_pt:
         print(dim(
-            "[!] CVE-2026-87902 = double-encoded path traversal â†’ LFI (CVSS 9.2, no auth)."
+            "[!] CVE-2026-87902 = double-encoded path traversal -> LFI (CVSS 9.2, no auth)."
         ))
     if blocked or offline:
         print(dim(
@@ -1291,7 +1291,7 @@ def main():
                 },
                 "results": [d.to_dict() for d in results],
             }, f, indent=2)
-        print(green(f"[+] JSON â†’ {args.json}"))
+        print(green(f"[+] JSON -> {args.json}"))
 
     if args.csv:
         fieldnames = [
@@ -1305,7 +1305,7 @@ def main():
             w.writeheader()
             for d in results:
                 w.writerow({k: d.to_dict()[k] for k in fieldnames})
-        print(green(f"[+] CSV â†’ {args.csv}"))
+        print(green(f"[+] CSV -> {args.csv}"))
 
     if args.html:
         out = generate_html_report(
@@ -1313,7 +1313,7 @@ def main():
             stats=tstats,
             skipped=tstats["skipped"] if args.list else None,
         )
-        print(green(f"[+] HTML report â†’ {out}"))
+        print(green(f"[+] HTML report -> {out}"))
 
 
 if __name__ == "__main__":
