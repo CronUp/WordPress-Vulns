@@ -1,0 +1,4 @@
+requests>=2.31.0
+colorama>=0.4.6
+# Optional — enables Chrome TLS fingerprint impersonation (reduces Cloudflare bot challenges)
+# curl_cffi>=0.6.0
