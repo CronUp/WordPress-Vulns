@@ -1,4 +1,4 @@
-# Wordpress Vulns — WordPress Dual Critical Vulnerability Checker
+# Wordpress Vulns - WordPress Dual Critical Vulnerability Checker
 
 A non-invasive passive scanner that detects **two critical WordPress vulnerabilities** in a single run.
 
