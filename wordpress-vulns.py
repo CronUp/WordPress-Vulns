@@ -93,8 +93,31 @@ def dim(t): return paint(t, C.DIM)
 # --------------------------------------------------------------------------- #
 # Constants
 # --------------------------------------------------------------------------- #
-C2S_FIXED_VERSION = (7, 1, 1)   # Click2Shell: fixed in WordPress 7.1.1
-PT_FIXED_VERSION  = (7, 1, 2)   # CVE-2026-87902: fixed in WordPress 7.1.2
+# Click2Shell: per-branch first patched patch number (GHSA-5qf7-2r5p-ppj8)
+# Branches < 4.8 predate the vulnerability (introduced in 4.8) and are NOT affected.
+C2S_PATCHED: dict = {
+    (4, 8): 31, (4, 9): 32,
+    (5, 0): 28, (5, 1): 25, (5, 2): 27, (5, 3): 24,
+    (5, 4): 22, (5, 5): 21, (5, 6): 20, (5, 7): 18,
+    (5, 8): 16, (5, 9): 17,
+    (6, 0): 15, (6, 1): 13, (6, 2): 12, (6, 3): 11,
+    (6, 4): 11, (6, 5): 11, (6, 6):  8, (6, 7):  8,
+    (6, 8):  9, (6, 9):  8,
+    (7, 0):  5, (7, 1):  1,
+}
+
+# CVE-2026-87902: per-branch first patched patch number (GHSA-7hp8-65ch-5whp)
+# Branches < 4.7 predate the vulnerability and are NOT affected.
+PT_PATCHED: dict = {
+    (4, 7): 37, (4, 8): 32, (4, 9): 33,
+    (5, 0): 29, (5, 1): 26, (5, 2): 28, (5, 3): 25,
+    (5, 4): 23, (5, 5): 22, (5, 6): 21, (5, 7): 19,
+    (5, 8): 17, (5, 9): 18,
+    (6, 0): 16, (6, 1): 14, (6, 2): 13, (6, 3): 12,
+    (6, 4): 12, (6, 5): 12, (6, 6):  9, (6, 7):  9,
+    (6, 8): 10, (6, 9):  9,
+    (7, 0):  6, (7, 1):  2,
+}
 
 CHAIN_THEME = "mobile-repair-zone"
 
@@ -201,12 +224,12 @@ class Detection:
     version: Optional[str] = None
     version_source: Optional[str] = None
 
-    # --- CVE 1: Click2Shell (WordPress < 7.1.1) ---
+    # --- CVE 1: Click2Shell (per-branch backports, GHSA-5qf7-2r5p-ppj8) ---
     vulnerable_click2shell: bool = False
     chain_theme_installed: bool = False
     chain_theme_version: Optional[str] = None
 
-    # --- CVE 2: CVE-2026-87902 (WordPress < 7.1.2) ---
+    # --- CVE 2: CVE-2026-87902 (per-branch backports, GHSA-7hp8-65ch-5whp) ---
     vulnerable_pathtrav: bool = False
     pathtrav_checked: bool = False   # True = behavioral check ran to completion
     pathtrav_page_id: Optional[int] = None
@@ -224,13 +247,13 @@ class Detection:
 
     @property
     def pathtrav_vuln(self) -> bool:
-        """True if CVE-2026-87902 label shows VULNERABLE - behavioral confirm OR version < 7.1.2."""
+        """True if CVE-2026-87902 label shows VULNERABLE - behavioral confirm OR version in affected range."""
         if not self.is_wordpress or self.blocked or self.offline or self.error:
             return False
         if self.vulnerable_pathtrav:
             return True
         vt = version_tuple(self.version)
-        return vt is not None and is_older(vt, PT_FIXED_VERSION)
+        return pt_is_vulnerable(vt) is True
 
     @property
     def any_critical(self) -> bool:
@@ -344,6 +367,42 @@ def is_older(candidate, baseline) -> bool:
     cand = candidate + (0,) * (3 - len(candidate))
     base = baseline + (0,) * (3 - len(baseline))
     return cand < base
+
+
+def c2s_is_vulnerable(vt) -> Optional[bool]:
+    """
+    Returns True  - version is in a vulnerable range for Click2Shell
+            False - version is patched or predates the vulnerability (< 4.8)
+            None  - version is None (unknown)
+    """
+    if vt is None:
+        return None
+    major, minor = vt[0], vt[1]
+    patch = vt[2] if len(vt) > 2 else 0
+    if (major, minor) < (4, 8):
+        return False
+    first_patched = C2S_PATCHED.get((major, minor))
+    if first_patched is None:
+        return False
+    return patch < first_patched
+
+
+def pt_is_vulnerable(vt) -> Optional[bool]:
+    """
+    Returns True  - version is in a vulnerable range for CVE-2026-87902
+            False - version is patched or predates the vulnerability (< 4.7)
+            None  - version is None (unknown)
+    """
+    if vt is None:
+        return None
+    major, minor = vt[0], vt[1]
+    patch = vt[2] if len(vt) > 2 else 0
+    if (major, minor) < (4, 7):
+        return False
+    first_patched = PT_PATCHED.get((major, minor))
+    if first_patched is None:
+        return False
+    return patch < first_patched
 
 
 # --------------------------------------------------------------------------- #
@@ -639,9 +698,9 @@ def scan_target(
     det.evidence["wp_signals"] = {"strong": strong, "weak": weak}
     det.evidence["wp_path"] = detected_path
 
-    # ---- CVE 1: Click2Shell (< 7.1.1) ----
-    det.vulnerable_click2shell = det.is_wordpress and is_older(
-        version_tuple(version), C2S_FIXED_VERSION
+    # ---- CVE 1: Click2Shell ----
+    det.vulnerable_click2shell = det.is_wordpress and (
+        c2s_is_vulnerable(version_tuple(version)) is True
     )
 
     # Chain theme (mobile-repair-zone) - only meaningful when Click2Shell exposed
@@ -660,11 +719,11 @@ def scan_target(
                 "url": theme_url, "status": r.status_code,
             }
 
-    # ---- CVE 2: CVE-2026-87902 (< 7.1.2) - behavioral fingerprint ----
+    # ---- CVE 2: CVE-2026-87902 - behavioral fingerprint ----
     if check_pt and det.is_wordpress:
         vt = version_tuple(version)
-        # Skip only when version is definitively >= 7.1.2; unknown version -> check anyway
-        if vt is None or is_older(vt, PT_FIXED_VERSION):
+        # Skip only when version is definitively patched; unknown version -> check anyway
+        if pt_is_vulnerable(vt) is not False:
             vuln_pt, pt_page_id, pt_ev, pt_checked = check_pathtrav(
                 session, base + detected_path, timeout, verify
             )
@@ -695,29 +754,26 @@ def render_progress(done: int, total: int, width: int = 26) -> str:
     return f"[*] Progress: {done:>{tw}}/{total} ({pct:3d}%) [{bar}]"
 
 
-def _risk_label(det: Detection, vuln: bool) -> tuple:
-    """Generic risk label used for Click2Shell."""
+def _risk_label(det: Detection) -> tuple:
+    """Click2Shell label - per-branch version-aware (GHSA-5qf7-2r5p-ppj8)."""
     if det.error:   return "ERR",       (C.RED, C.BOLD)
     if det.blocked: return "BLOCKED",   (C.YELLOW, C.BOLD)
     if det.offline: return "OFFLINE",   (C.MAGENTA, C.BOLD)
-    if vuln:        return "VULNERABLE",(C.RED, C.BOLD)
-    if det.is_wordpress and det.version:
-        return "patched", (C.GREEN,)
-    if det.is_wordpress:
-        return "UNKNOWN", (C.YELLOW,)
-    return "-", (C.DIM,)
+    if not det.is_wordpress: return "-",(C.DIM,)
+    vt = version_tuple(det.version)
+    vuln = c2s_is_vulnerable(vt)
+    if vuln is True:  return "VULNERABLE", (C.RED, C.BOLD)
+    if vuln is False: return "patched",    (C.GREEN,)
+    return "UNKNOWN", (C.YELLOW,)
 
 
 def _pathtrav_label(det: Detection) -> tuple:
     """
-    Risk label for CVE-2026-87902 - version-aware and check-aware.
+    Risk label for CVE-2026-87902 - per-branch version-aware (GHSA-7hp8-65ch-5whp).
 
-    patched      = version >= 7.1.2 (confirmed safe by version)
-                   OR behavioral check completed and found no vulnerability
-    UNCONFIRMED  = version < 7.1.2 but check couldn't complete
-                   (WAF blocking ?page_id=, timeout, no valid page IDs)
-    VULNERABLE   = behavioral check confirmed path traversal
-    UNKNOWN      = WordPress detected but no version info
+    patched    = version is in a patched release for its branch, OR predates 4.7
+    VULNERABLE = behavioral check confirmed traversal, OR version is in affected range
+    UNKNOWN    = WordPress detected but no version info
     """
     if det.error:   return "ERR",       (C.RED, C.BOLD)
     if det.blocked: return "BLOCKED",   (C.YELLOW, C.BOLD)
@@ -726,13 +782,12 @@ def _pathtrav_label(det: Detection) -> tuple:
     if det.vulnerable_pathtrav: return "VULNERABLE", (C.RED, C.BOLD)
 
     vt = version_tuple(det.version)
-    # Version >= 7.1.2 means patch was applied - no behavioral check needed.
-    if vt is not None and not is_older(vt, PT_FIXED_VERSION):
+    vuln = pt_is_vulnerable(vt)
+    if vuln is False:
         return "patched", (C.GREEN,)
-    # Version < fix baseline - flag as vulnerable regardless of behavioral result.
-    # A negative behavioral check is NOT proof of patched: caches, WAFs, or
-    # theme differences can silently absorb the payload without the site being fixed.
-    if vt is not None:
+    if vuln is True:
+        # A negative behavioral check is NOT proof of patched: caches, WAFs, or
+        # theme differences can silently absorb the payload without the site being fixed.
         return "VULNERABLE", (C.RED, C.BOLD)
     return "UNKNOWN", (C.YELLOW,)
 
@@ -759,7 +814,7 @@ def print_table(results: list):
             else (C.DIM if not (d.blocked or d.offline) else C.YELLOW)
         )
 
-        c2s_lbl, c2s_codes = _risk_label(d, d.vulnerable_click2shell)
+        c2s_lbl, c2s_codes = _risk_label(d)
         pt_lbl,  pt_codes  = _pathtrav_label(d)
 
         row = [
@@ -871,15 +926,16 @@ def generate_html_report(
     def esc(s):
         return html_lib.escape(str(s)) if s is not None else ""
 
-    def risk_badge(det: Detection, vuln: bool) -> str:
+    def risk_badge(det: Detection) -> str:
         if det.error:   return '<span class="badge b-err">ERROR</span>'
         if det.blocked: return '<span class="badge b-open">BLOCKED</span>'
         if det.offline: return '<span class="badge b-offline">OFFLINE</span>'
-        if vuln:        return '<span class="badge b-vuln">VULNERABLE</span>'
-        if det.is_wordpress and det.version:
-            return '<span class="badge b-ok">patched</span>'
-        if det.is_wordpress:
-            return '<span class="badge b-open">UNKNOWN</span>'
+        if not det.is_wordpress: return '<span class="muted">-</span>'
+        vt = version_tuple(det.version)
+        vuln = c2s_is_vulnerable(vt)
+        if vuln is True:  return '<span class="badge b-vuln">VULNERABLE</span>'
+        if vuln is False: return '<span class="badge b-ok">patched</span>'
+        return '<span class="badge b-open">UNKNOWN</span>'
         return '<span class="badge b-none">n/a</span>'
 
     def pathtrav_badge(det: Detection) -> str:
@@ -890,9 +946,10 @@ def generate_html_report(
         if det.vulnerable_pathtrav:
             return '<span class="badge b-vuln">VULNERABLE</span>'
         vt = version_tuple(det.version)
-        if vt is not None and not is_older(vt, PT_FIXED_VERSION):
+        vuln = pt_is_vulnerable(vt)
+        if vuln is False:
             return '<span class="badge b-ok">patched</span>'
-        if vt is not None:
+        if vuln is True:
             return '<span class="badge b-vuln">VULNERABLE</span>'
         return '<span class="badge b-open">UNKNOWN</span>'
 
@@ -909,7 +966,7 @@ def generate_html_report(
             f"<td class='target'>{esc(d.target)}</td>"
             f"<td>{esc(wp)}</td>"
             f"<td>{ver}</td>"
-            f"<td>{risk_badge(d, d.vulnerable_click2shell)}</td>"
+            f"<td>{risk_badge(d)}</td>"
             f"<td>{pathtrav_badge(d)}</td>"
             f"<td>{mrz}</td>"
             f"<td>{setup}</td>"
@@ -930,8 +987,8 @@ def generate_html_report(
         )
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c2s_base = ".".join(map(str, C2S_FIXED_VERSION))
-    pt_base  = ".".join(map(str, PT_FIXED_VERSION))
+    c2s_base = "4.8.31 - 7.1.1 (per-branch backports)"
+    pt_base  = "4.7.37 - 7.1.2 (per-branch backports)"
 
     html = f"""<!doctype html>
 <html lang="en">
@@ -1198,11 +1255,9 @@ def main():
     check_pt    = not args.no_pathtrav
     check_chain = not args.no_chain
 
-    c2s_base = ".".join(map(str, C2S_FIXED_VERSION))
-    pt_base  = ".".join(map(str, PT_FIXED_VERSION))
     print(bold(f"[*] Scanning {len(targets)} target(s)") + dim(" - passive checks only."))
-    print(bold("[*] Click2Shell baseline: ") + yellow(f"WP < {c2s_base}"))
-    print(bold("[*] CVE-2026-87902 baseline: ") + yellow(f"WP < {pt_base}") + dim(" (CVSS 9.2, behavioral check)"))
+    print(bold("[*] Click2Shell baseline: ") + yellow("per-branch backports (4.8.31 - 7.1.1)"))
+    print(bold("[*] CVE-2026-87902 baseline: ") + yellow("per-branch backports (4.7.37 - 7.1.2)") + dim(" (CVSS 9.2, behavioral check)"))
 
     if args.list:
         print(dim(
@@ -1286,8 +1341,8 @@ def main():
             json.dump({
                 "generated": datetime.now(timezone.utc).isoformat(),
                 "baselines": {
-                    "click2shell": f"WordPress {c2s_base}",
-                    "cve_2026_87902": f"WordPress {pt_base}",
+                    "click2shell": "per-branch backports (4.8.31 - 7.1.1) GHSA-5qf7-2r5p-ppj8",
+                    "cve_2026_87902": "per-branch backports (4.7.37 - 7.1.2) GHSA-7hp8-65ch-5whp",
                 },
                 "results": [d.to_dict() for d in results],
             }, f, indent=2)
